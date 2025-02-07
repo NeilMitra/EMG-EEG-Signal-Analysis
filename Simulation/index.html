@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>EMG/EEG Signal Processing Simulation</title>
+  <title>EMG/EEG Signal Processing Simulation with Adjustable Frequency</title>
   <style>
     /* Global dark theme styling */
     body {
@@ -19,9 +19,9 @@
       height: 100vh;
     }
 
-    /* Sidebar with navigation and controls */
+    /* Sidebar styling */
     #sidebar {
-      width: 240px;
+      width: 280px;
       background-color: #1e1e1e;
       padding: 20px;
       box-sizing: border-box;
@@ -35,9 +35,17 @@
       color: #ffcc00;
     }
 
-    #sidebar select, #sidebar button {
+    #sidebar label {
+      display: block;
+      margin-top: 10px;
+    }
+
+    #sidebar select,
+    #sidebar input[type="number"],
+    #sidebar button {
       width: 100%;
       padding: 8px;
+      margin-top: 5px;
       margin-bottom: 10px;
       border: none;
       border-radius: 4px;
@@ -51,7 +59,7 @@
       cursor: pointer;
     }
 
-    /* List of processing steps */
+    /* Processing steps list */
     #stepsList {
       list-style: none;
       padding: 0;
@@ -87,7 +95,7 @@
       overflow-y: auto;
     }
 
-    /* Canvas for plotting graphs */
+    /* Canvas for graph plotting */
     #graphCanvas {
       background-color: #1e1e1e;
       border: 1px solid #333;
@@ -98,7 +106,7 @@
       transition: opacity 0.3s ease;
     }
 
-    /* Description and math formulas panel */
+    /* Description panel styling */
     #description {
       background-color: #1e1e1e;
       border: 1px solid #333;
@@ -107,7 +115,7 @@
       line-height: 1.5em;
     }
 
-    /* Tooltip styling for interactive coordinate display */
+    /* Tooltip styling */
     #tooltip {
       position: absolute;
       background: rgba(50, 50, 50, 0.9);
@@ -123,7 +131,7 @@
 </head>
 <body>
   <div id="container">
-    <!-- Sidebar with signal type selector, generate button, and processing steps -->
+    <!-- Sidebar with controls -->
     <div id="sidebar">
       <h2>Signal Processing Steps</h2>
       <label for="signalType">Select Signal Type:</label>
@@ -131,6 +139,8 @@
         <option value="EEG">EEG</option>
         <option value="EMG">EMG</option>
       </select>
+      <label for="frequency">Frequency (Hz):</label>
+      <input type="number" id="frequency" value="10" step="0.1" />
       <button id="generateBtn">Generate Signal</button>
       <ul id="stepsList">
         <li data-step="raw" class="active">Raw Signal</li>
@@ -139,13 +149,13 @@
         <li data-step="rectified">Rectified Signal</li>
       </ul>
     </div>
-    <!-- Main content: Graph canvas and explanation panel -->
+    <!-- Main content area -->
     <div id="main">
       <canvas id="graphCanvas"></canvas>
       <div id="description"></div>
     </div>
   </div>
-  <!-- Tooltip for displaying data coordinates on hover -->
+  <!-- Tooltip -->
   <div id="tooltip"></div>
 
   <script>
@@ -154,29 +164,27 @@
      *********************************************************************/
     let rawSignal = [];
     let filteredSignal = [];
-    let fourierData = {}; // Will hold { freq: [...], magnitude: [...] }
+    let fourierData = {}; // Object to hold frequency bins and magnitudes
     let rectifiedSignal = [];
     let timeData = [];
     const N = 1000;    // Number of samples
     const fs = 1000;   // Sampling frequency (Hz)
-
-    // Current step identifier ("raw", "filtered", "fourier", "rectified")
     let currentStep = "raw";
 
-    // References to DOM elements
+    // DOM element references
     const generateBtn = document.getElementById("generateBtn");
     const signalTypeSelect = document.getElementById("signalType");
+    const frequencyInput = document.getElementById("frequency");
     const stepsList = document.getElementById("stepsList");
     const canvas = document.getElementById("graphCanvas");
     const ctx = canvas.getContext("2d");
     const descriptionDiv = document.getElementById("description");
     const tooltip = document.getElementById("tooltip");
 
-    // Set canvas resolution to match its displayed size
+    // Resize the canvas to match its displayed size
     function resizeCanvas() {
       canvas.width = canvas.clientWidth;
       canvas.height = canvas.clientHeight;
-      // Redraw current graph if a signal has been generated
       if (rawSignal.length > 0) {
         showStep(currentStep);
       }
@@ -188,40 +196,39 @@
      * Signal Generation Functions
      *********************************************************************/
     /**
-     * Generate a simulated signal based on the selected type.
-     * EEG: A 10 Hz sine wave with added noise.
-     * EMG: Random noise with occasional spikes.
+     * Generates a simulated signal.
+     * For EEG: s(t) = sin(2π·freq·t) + noise.
+     * For EMG: Baseline noise with random spikes. The chance for a spike is
+     * proportional to the selected frequency (i.e., on average, ~freq spikes per second).
      */
     function generateSignal(signalType) {
       rawSignal = [];
       timeData = [];
+      const freq = parseFloat(frequencyInput.value) || 10;
       for (let i = 0; i < N; i++) {
         const t = i / fs;
         timeData.push(t);
         if (signalType === "EEG") {
-          // EEG: sine wave with noise
           const noise = (Math.random() - 0.5) * 0.4;
-          rawSignal.push(Math.sin(2 * Math.PI * 10 * t) + noise);
+          rawSignal.push(Math.sin(2 * Math.PI * freq * t) + noise);
         } else if (signalType === "EMG") {
-          // EMG: baseline noise with random spikes
           const noise = (Math.random() - 0.5) * 0.2;
           let spike = 0;
-          if (Math.random() < 0.05) {
-            // Create a spike with amplitude between -1 and 1
+          // Probability of a spike in this sample is (freq / fs), so on average freq spikes per second.
+          if (Math.random() < (freq / fs)) {
             spike = (Math.random() * 2 - 1) * 1.5;
           }
           rawSignal.push(noise + spike);
         }
       }
-      // Process the signal through subsequent steps
+      // Process the signal through additional steps
       filteredSignal = movingAverageFilter(rawSignal, 5);
       fourierData = computeDFT(filteredSignal);
-      rectifiedSignal = rawSignal.map((v) => Math.abs(v));
+      rectifiedSignal = rawSignal.map(v => Math.abs(v));
     }
 
     /**
-     * Apply a simple moving average filter with the given window size.
-     * For each sample, the output is the average of neighboring samples.
+     * Simple moving average filter.
      */
     function movingAverageFilter(signal, windowSize) {
       const halfWindow = Math.floor(windowSize / 2);
@@ -241,16 +248,14 @@
     }
 
     /**
-     * Compute a simple Discrete Fourier Transform (DFT) on the signal.
-     * Returns an object with frequency bins and their corresponding magnitudes.
+     * Compute a simple Discrete Fourier Transform (DFT) of the signal.
      */
     function computeDFT(signal) {
       const freq = [];
       const magnitude = [];
-      // We compute the DFT for k = 0 to N/2 (Nyquist)
+      // Compute the DFT for k = 0 to N/2 (Nyquist)
       for (let k = 0; k <= signal.length / 2; k++) {
-        let re = 0;
-        let im = 0;
+        let re = 0, im = 0;
         for (let n = 0; n < signal.length; n++) {
           const angle = (2 * Math.PI * k * n) / signal.length;
           re += signal[n] * Math.cos(angle);
@@ -266,7 +271,7 @@
      * Graph Drawing Function
      *********************************************************************/
     /**
-     * Draw a graph of the provided data on the canvas.
+     * Draws a graph of the provided data on the canvas.
      * @param {Array} xData - Array of x values.
      * @param {Array} yData - Array of y values.
      * @param {String} xLabel - Label for the x-axis.
@@ -274,41 +279,34 @@
      * @param {String} title  - Title of the graph.
      */
     function drawGraph(xData, yData, xLabel, yLabel, title) {
-      // Clear canvas
+      // Clear the canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Define margins for drawing axes and labels
+      // Margins for drawing axes and labels
       const margin = { top: 40, right: 20, bottom: 40, left: 60 };
       const plotWidth = canvas.width - margin.left - margin.right;
       const plotHeight = canvas.height - margin.top - margin.bottom;
 
-      // Compute min and max values for scaling
+      // Determine the scaling for the graph
       const xMin = Math.min(...xData);
       const xMax = Math.max(...xData);
       const yMin = Math.min(...yData);
       const yMax = Math.max(...yData);
 
-      // Function to map data coordinates to canvas coordinates
-      const mapX = (x) =>
-        margin.left + ((x - xMin) / (xMax - xMin)) * plotWidth;
-      const mapY = (y) =>
-        margin.top + plotHeight - ((y - yMin) / (yMax - yMin)) * plotHeight;
+      const mapX = x => margin.left + ((x - xMin) / (xMax - xMin)) * plotWidth;
+      const mapY = y => margin.top + plotHeight - ((y - yMin) / (yMax - yMin)) * plotHeight;
 
-      // Draw background grid lines (optional)
+      // Draw background grid lines
       ctx.strokeStyle = "#333";
       ctx.lineWidth = 1;
       ctx.beginPath();
-      // Horizontal grid lines
       for (let i = 0; i <= 5; i++) {
-        const y =
-          margin.top + (i * plotHeight) / 5;
+        const y = margin.top + (i * plotHeight) / 5;
         ctx.moveTo(margin.left, y);
         ctx.lineTo(canvas.width - margin.right, y);
       }
-      // Vertical grid lines
       for (let i = 0; i <= 5; i++) {
-        const x =
-          margin.left + (i * plotWidth) / 5;
+        const x = margin.left + (i * plotWidth) / 5;
         ctx.moveTo(x, margin.top);
         ctx.lineTo(x, canvas.height - margin.bottom);
       }
@@ -318,10 +316,8 @@
       ctx.strokeStyle = "#e0e0e0";
       ctx.lineWidth = 2;
       ctx.beginPath();
-      // X-axis
       ctx.moveTo(margin.left, canvas.height - margin.bottom);
       ctx.lineTo(canvas.width - margin.right, canvas.height - margin.bottom);
-      // Y-axis
       ctx.moveTo(margin.left, margin.top);
       ctx.lineTo(margin.left, canvas.height - margin.bottom);
       ctx.stroke();
@@ -329,12 +325,9 @@
       // Draw labels and title
       ctx.fillStyle = "#e0e0e0";
       ctx.font = "16px Arial";
-      // Title
       ctx.textAlign = "center";
       ctx.fillText(title, canvas.width / 2, margin.top - 10);
-      // X-axis label
       ctx.fillText(xLabel, canvas.width / 2, canvas.height - 5);
-      // Y-axis label (rotated)
       ctx.save();
       ctx.translate(15, canvas.height / 2);
       ctx.rotate(-Math.PI / 2);
@@ -360,85 +353,50 @@
     /*********************************************************************
      * Step Display and Explanation Functions
      *********************************************************************/
-    /**
-     * Update the active step in the sidebar list.
-     */
     function updateActiveStep(selectedStep) {
       const items = document.querySelectorAll("#stepsList li");
-      items.forEach((item) => {
-        if (item.getAttribute("data-step") === selectedStep) {
-          item.classList.add("active");
-        } else {
-          item.classList.remove("active");
-        }
+      items.forEach(item => {
+        item.classList.toggle("active", item.getAttribute("data-step") === selectedStep);
       });
     }
 
-    /**
-     * Display the graph and explanation corresponding to the current step.
-     * @param {String} step - The processing step to display ("raw", "filtered", "fourier", or "rectified").
-     */
     function showStep(step) {
       currentStep = step;
       updateActiveStep(step);
-      // Use a fade-out then fade-in effect on the canvas for smooth transition
+      // Fade out then in for a smooth transition.
       canvas.style.opacity = 0;
       setTimeout(() => {
+        const freq = parseFloat(frequencyInput.value) || 10;
+        const signalType = signalTypeSelect.value;
         if (step === "raw") {
-          descriptionDiv.innerHTML = `
-            <h3>Raw Signal</h3>
-            <p>The raw signal is simulated as follows:<br>
-            <strong>EEG:</strong> s(t) = sin(2π·10·t) + noise<br>
-            <strong>EMG:</strong> s(t) = baseline noise with random spikes</p>
-          `;
-          drawGraph(
-            timeData,
-            rawSignal,
-            "Time (s)",
-            "Amplitude",
-            "Raw Signal"
-          );
+          if (signalType === "EEG") {
+            descriptionDiv.innerHTML = `
+              <h3>Raw EEG Signal</h3>
+              <p>Simulated as: s(t) = sin(2π·${freq}·t) + noise</p>`;
+          } else {
+            descriptionDiv.innerHTML = `
+              <h3>Raw EMG Signal</h3>
+              <p>Simulated as baseline noise with random spikes.<br>
+              The chance of a spike per sample is about ${(freq / fs).toFixed(3)} (≈${freq} spikes per second on average).</p>`;
+          }
+          drawGraph(timeData, rawSignal, "Time (s)", "Amplitude", "Raw Signal");
         } else if (step === "filtered") {
           descriptionDiv.innerHTML = `
             <h3>Filtered Signal</h3>
             <p>A simple moving average filter is applied to reduce noise:<br>
-            <em>y[n] = (x[n-2] + x[n-1] + x[n] + x[n+1] + x[n+2]) / 5</em></p>
-          `;
-          drawGraph(
-            timeData,
-            filteredSignal,
-            "Time (s)",
-            "Amplitude",
-            "Filtered Signal"
-          );
+            y[n] = (x[n-2] + x[n-1] + x[n] + x[n+1] + x[n+2]) / 5</p>`;
+          drawGraph(timeData, filteredSignal, "Time (s)", "Amplitude", "Filtered Signal");
         } else if (step === "fourier") {
           descriptionDiv.innerHTML = `
             <h3>Fourier Transform</h3>
             <p>The Discrete Fourier Transform (DFT) decomposes the signal into its frequency components:<br>
-            <em>X[k] = Σₙ₌₀^(N-1) x[n]·e<sup>−j2πkn/N</sup></em><br>
-            The Fourier series expansion is given by:<br>
-            <em>f(t) = a₀/2 + Σ (aₙ cos(nωt) + bₙ sin(nωt))</em></p>
-          `;
-          drawGraph(
-            fourierData.freq,
-            fourierData.magnitude,
-            "Frequency (Hz)",
-            "Magnitude",
-            "Fourier Transform (Magnitude)"
-          );
+            X[k] = Σₙ₌₀^(N-1) x[n]·e<sup>−j2πkn/N</sup></p>`;
+          drawGraph(fourierData.freq, fourierData.magnitude, "Frequency (Hz)", "Magnitude", "Fourier Transform");
         } else if (step === "rectified") {
           descriptionDiv.innerHTML = `
             <h3>Rectified Signal</h3>
-            <p>The rectification step computes the absolute value of the signal:<br>
-            <em>y[n] = |x[n]|</em></p>
-          `;
-          drawGraph(
-            timeData,
-            rectifiedSignal,
-            "Time (s)",
-            "Amplitude",
-            "Rectified Signal"
-          );
+            <p>Rectification computes the absolute value: y[n] = |x[n]|</p>`;
+          drawGraph(timeData, rectifiedSignal, "Time (s)", "Amplitude", "Rectified Signal");
         }
         canvas.style.opacity = 1;
       }, 200);
@@ -447,32 +405,27 @@
     /*********************************************************************
      * Event Listeners and Interactivity
      *********************************************************************/
-    // Generate new signal when button is clicked
     generateBtn.addEventListener("click", () => {
       const selectedSignal = signalTypeSelect.value;
       generateSignal(selectedSignal);
-      // After generating, display the raw signal by default
       showStep("raw");
     });
 
-    // Add click listeners to each processing step in the sidebar
-    document.querySelectorAll("#stepsList li").forEach((item) => {
+    document.querySelectorAll("#stepsList li").forEach(item => {
       item.addEventListener("click", () => {
-        const step = item.getAttribute("data-step");
         if (rawSignal.length === 0) {
           alert("Please generate a signal first.");
           return;
         }
-        showStep(step);
+        showStep(item.getAttribute("data-step"));
       });
     });
 
-    // Optional: Show a tooltip with data coordinates when hovering over the canvas.
+    // Tooltip for displaying data coordinates on canvas hover
     canvas.addEventListener("mousemove", (evt) => {
       const rect = canvas.getBoundingClientRect();
       const mouseX = evt.clientX - rect.left;
       const mouseY = evt.clientY - rect.top;
-      // Map canvas coordinates back to data coordinates based on current step.
       let xData, yData;
       if (currentStep === "fourier") {
         xData = fourierData.freq;
@@ -490,7 +443,6 @@
         return;
       }
 
-      // Define the same margins as in drawGraph()
       const margin = { top: 40, right: 20, bottom: 40, left: 60 };
       const plotWidth = canvas.width - margin.left - margin.right;
       const plotHeight = canvas.height - margin.top - margin.bottom;
@@ -498,17 +450,13 @@
       const xMax = Math.max(...xData);
       const yMin = Math.min(...yData);
       const yMax = Math.max(...yData);
-      // Inverse mapping functions
-      const invMapX = (x) => xMin + ((x - margin.left) / plotWidth) * (xMax - xMin);
-      const invMapY = (y) => yMax - ((y - margin.top) / plotHeight) * (yMax - yMin);
-
+      const invMapX = x => xMin + ((x - margin.left) / plotWidth) * (xMax - xMin);
+      const invMapY = y => yMax - ((y - margin.top) / plotHeight) * (yMax - yMin);
       const dataX = invMapX(mouseX);
       const dataY = invMapY(mouseY);
-
       tooltip.style.left = evt.clientX + 10 + "px";
       tooltip.style.top = evt.clientY + 10 + "px";
-      tooltip.innerHTML =
-        "x = " + dataX.toFixed(3) + "<br>y = " + dataY.toFixed(3);
+      tooltip.innerHTML = "x = " + dataX.toFixed(3) + "<br>y = " + dataY.toFixed(3);
       tooltip.style.display = "block";
     });
 
@@ -519,7 +467,6 @@
     /*********************************************************************
      * Initialization
      *********************************************************************/
-    // Optionally, generate a default signal on page load
     window.addEventListener("load", () => {
       generateSignal(signalTypeSelect.value);
       showStep("raw");
