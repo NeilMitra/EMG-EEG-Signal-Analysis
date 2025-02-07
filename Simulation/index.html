@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EMG/EEG Signal Processing Simulation</title>
+  <style>
+    /* Global dark theme styling */
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background-color: #121212;
+      color: #e0e0e0;
+    }
+
+    /* Container for sidebar and main content */
+    #container {
+      display: flex;
+      height: 100vh;
+    }
+
+    /* Sidebar with navigation and controls */
+    #sidebar {
+      width: 240px;
+      background-color: #1e1e1e;
+      padding: 20px;
+      box-sizing: border-box;
+      border-right: 1px solid #333;
+      overflow-y: auto;
+    }
+
+    #sidebar h2 {
+      margin-top: 0;
+      font-size: 1.3em;
+      color: #ffcc00;
+    }
+
+    #sidebar select, #sidebar button {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 10px;
+      border: none;
+      border-radius: 4px;
+      background-color: #333;
+      color: #e0e0e0;
+      font-size: 1em;
+    }
+
+    #sidebar button:hover {
+      background-color: #444;
+      cursor: pointer;
+    }
+
+    /* List of processing steps */
+    #stepsList {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    #stepsList li {
+      padding: 10px;
+      margin-bottom: 8px;
+      background-color: #2a2a2a;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+
+    #stepsList li:hover {
+      background-color: #3a3a3a;
+    }
+
+    #stepsList li.active {
+      background-color: #ffcc00;
+      color: #121212;
+      font-weight: bold;
+    }
+
+    /* Main content area */
+    #main {
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      box-sizing: border-box;
+      overflow-y: auto;
+    }
+
+    /* Canvas for plotting graphs */
+    #graphCanvas {
+      background-color: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 4px;
+      width: 100%;
+      height: 50%;
+      margin-bottom: 20px;
+      transition: opacity 0.3s ease;
+    }
+
+    /* Description and math formulas panel */
+    #description {
+      background-color: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 15px;
+      line-height: 1.5em;
+    }
+
+    /* Tooltip styling for interactive coordinate display */
+    #tooltip {
+      position: absolute;
+      background: rgba(50, 50, 50, 0.9);
+      color: #fff;
+      padding: 4px 8px;
+      border-radius: 4px;
+      pointer-events: none;
+      font-size: 0.9em;
+      display: none;
+      z-index: 1000;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <!-- Sidebar with signal type selector, generate button, and processing steps -->
+    <div id="sidebar">
+      <h2>Signal Processing Steps</h2>
+      <label for="signalType">Select Signal Type:</label>
+      <select id="signalType">
+        <option value="EEG">EEG</option>
+        <option value="EMG">EMG</option>
+      </select>
+      <button id="generateBtn">Generate Signal</button>
+      <ul id="stepsList">
+        <li data-step="raw" class="active">Raw Signal</li>
+        <li data-step="filtered">Filtered Signal</li>
+        <li data-step="fourier">Fourier Transform</li>
+        <li data-step="rectified">Rectified Signal</li>
+      </ul>
+    </div>
+    <!-- Main content: Graph canvas and explanation panel -->
+    <div id="main">
+      <canvas id="graphCanvas"></canvas>
+      <div id="description"></div>
+    </div>
+  </div>
+  <!-- Tooltip for displaying data coordinates on hover -->
+  <div id="tooltip"></div>
+
+  <script>
+    /*********************************************************************
+     * Global Variables and Signal Data Placeholders
+     *********************************************************************/
+    let rawSignal = [];
+    let filteredSignal = [];
+    let fourierData = {}; // Will hold { freq: [...], magnitude: [...] }
+    let rectifiedSignal = [];
+    let timeData = [];
+    const N = 1000;    // Number of samples
+    const fs = 1000;   // Sampling frequency (Hz)
+
+    // Current step identifier ("raw", "filtered", "fourier", "rectified")
+    let currentStep = "raw";
+
+    // References to DOM elements
+    const generateBtn = document.getElementById("generateBtn");
+    const signalTypeSelect = document.getElementById("signalType");
+    const stepsList = document.getElementById("stepsList");
+    const canvas = document.getElementById("graphCanvas");
+    const ctx = canvas.getContext("2d");
+    const descriptionDiv = document.getElementById("description");
+    const tooltip = document.getElementById("tooltip");
+
+    // Set canvas resolution to match its displayed size
+    function resizeCanvas() {
+      canvas.width = canvas.clientWidth;
+      canvas.height = canvas.clientHeight;
+      // Redraw current graph if a signal has been generated
+      if (rawSignal.length > 0) {
+        showStep(currentStep);
+      }
+    }
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+
+    /*********************************************************************
+     * Signal Generation Functions
+     *********************************************************************/
+    /**
+     * Generate a simulated signal based on the selected type.
+     * EEG: A 10 Hz sine wave with added noise.
+     * EMG: Random noise with occasional spikes.
+     */
+    function generateSignal(signalType) {
+      rawSignal = [];
+      timeData = [];
+      for (let i = 0; i < N; i++) {
+        const t = i / fs;
+        timeData.push(t);
+        if (signalType === "EEG") {
+          // EEG: sine wave with noise
+          const noise = (Math.random() - 0.5) * 0.4;
+          rawSignal.push(Math.sin(2 * Math.PI * 10 * t) + noise);
+        } else if (signalType === "EMG") {
+          // EMG: baseline noise with random spikes
+          const noise = (Math.random() - 0.5) * 0.2;
+          let spike = 0;
+          if (Math.random() < 0.05) {
+            // Create a spike with amplitude between -1 and 1
+            spike = (Math.random() * 2 - 1) * 1.5;
+          }
+          rawSignal.push(noise + spike);
+        }
+      }
+      // Process the signal through subsequent steps
+      filteredSignal = movingAverageFilter(rawSignal, 5);
+      fourierData = computeDFT(filteredSignal);
+      rectifiedSignal = rawSignal.map((v) => Math.abs(v));
+    }
+
+    /**
+     * Apply a simple moving average filter with the given window size.
+     * For each sample, the output is the average of neighboring samples.
+     */
+    function movingAverageFilter(signal, windowSize) {
+      const halfWindow = Math.floor(windowSize / 2);
+      const filtered = [];
+      for (let i = 0; i < signal.length; i++) {
+        let sum = 0;
+        let count = 0;
+        for (let j = i - halfWindow; j <= i + halfWindow; j++) {
+          if (j >= 0 && j < signal.length) {
+            sum += signal[j];
+            count++;
+          }
+        }
+        filtered.push(sum / count);
+      }
+      return filtered;
+    }
+
+    /**
+     * Compute a simple Discrete Fourier Transform (DFT) on the signal.
+     * Returns an object with frequency bins and their corresponding magnitudes.
+     */
+    function computeDFT(signal) {
+      const freq = [];
+      const magnitude = [];
+      // We compute the DFT for k = 0 to N/2 (Nyquist)
+      for (let k = 0; k <= signal.length / 2; k++) {
+        let re = 0;
+        let im = 0;
+        for (let n = 0; n < signal.length; n++) {
+          const angle = (2 * Math.PI * k * n) / signal.length;
+          re += signal[n] * Math.cos(angle);
+          im -= signal[n] * Math.sin(angle);
+        }
+        freq.push((k * fs) / signal.length);
+        magnitude.push(Math.sqrt(re * re + im * im));
+      }
+      return { freq, magnitude };
+    }
+
+    /*********************************************************************
+     * Graph Drawing Function
+     *********************************************************************/
+    /**
+     * Draw a graph of the provided data on the canvas.
+     * @param {Array} xData - Array of x values.
+     * @param {Array} yData - Array of y values.
+     * @param {String} xLabel - Label for the x-axis.
+     * @param {String} yLabel - Label for the y-axis.
+     * @param {String} title  - Title of the graph.
+     */
+    function drawGraph(xData, yData, xLabel, yLabel, title) {
+      // Clear canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Define margins for drawing axes and labels
+      const margin = { top: 40, right: 20, bottom: 40, left: 60 };
+      const plotWidth = canvas.width - margin.left - margin.right;
+      const plotHeight = canvas.height - margin.top - margin.bottom;
+
+      // Compute min and max values for scaling
+      const xMin = Math.min(...xData);
+      const xMax = Math.max(...xData);
+      const yMin = Math.min(...yData);
+      const yMax = Math.max(...yData);
+
+      // Function to map data coordinates to canvas coordinates
+      const mapX = (x) =>
+        margin.left + ((x - xMin) / (xMax - xMin)) * plotWidth;
+      const mapY = (y) =>
+        margin.top + plotHeight - ((y - yMin) / (yMax - yMin)) * plotHeight;
+
+      // Draw background grid lines (optional)
+      ctx.strokeStyle = "#333";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      // Horizontal grid lines
+      for (let i = 0; i <= 5; i++) {
+        const y =
+          margin.top + (i * plotHeight) / 5;
+        ctx.moveTo(margin.left, y);
+        ctx.lineTo(canvas.width - margin.right, y);
+      }
+      // Vertical grid lines
+      for (let i = 0; i <= 5; i++) {
+        const x =
+          margin.left + (i * plotWidth) / 5;
+        ctx.moveTo(x, margin.top);
+        ctx.lineTo(x, canvas.height - margin.bottom);
+      }
+      ctx.stroke();
+
+      // Draw axes
+      ctx.strokeStyle = "#e0e0e0";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      // X-axis
+      ctx.moveTo(margin.left, canvas.height - margin.bottom);
+      ctx.lineTo(canvas.width - margin.right, canvas.height - margin.bottom);
+      // Y-axis
+      ctx.moveTo(margin.left, margin.top);
+      ctx.lineTo(margin.left, canvas.height - margin.bottom);
+      ctx.stroke();
+
+      // Draw labels and title
+      ctx.fillStyle = "#e0e0e0";
+      ctx.font = "16px Arial";
+      // Title
+      ctx.textAlign = "center";
+      ctx.fillText(title, canvas.width / 2, margin.top - 10);
+      // X-axis label
+      ctx.fillText(xLabel, canvas.width / 2, canvas.height - 5);
+      // Y-axis label (rotated)
+      ctx.save();
+      ctx.translate(15, canvas.height / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText(yLabel, 0, 0);
+      ctx.restore();
+
+      // Plot the data line
+      ctx.strokeStyle = "#ffcc00";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i < xData.length; i++) {
+        const x = mapX(xData[i]);
+        const y = mapY(yData[i]);
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      ctx.stroke();
+    }
+
+    /*********************************************************************
+     * Step Display and Explanation Functions
+     *********************************************************************/
+    /**
+     * Update the active step in the sidebar list.
+     */
+    function updateActiveStep(selectedStep) {
+      const items = document.querySelectorAll("#stepsList li");
+      items.forEach((item) => {
+        if (item.getAttribute("data-step") === selectedStep) {
+          item.classList.add("active");
+        } else {
+          item.classList.remove("active");
+        }
+      });
+    }
+
+    /**
+     * Display the graph and explanation corresponding to the current step.
+     * @param {String} step - The processing step to display ("raw", "filtered", "fourier", or "rectified").
+     */
+    function showStep(step) {
+      currentStep = step;
+      updateActiveStep(step);
+      // Use a fade-out then fade-in effect on the canvas for smooth transition
+      canvas.style.opacity = 0;
+      setTimeout(() => {
+        if (step === "raw") {
+          descriptionDiv.innerHTML = `
+            <h3>Raw Signal</h3>
+            <p>The raw signal is simulated as follows:<br>
+            <strong>EEG:</strong> s(t) = sin(2π·10·t) + noise<br>
+            <strong>EMG:</strong> s(t) = baseline noise with random spikes</p>
+          `;
+          drawGraph(
+            timeData,
+            rawSignal,
+            "Time (s)",
+            "Amplitude",
+            "Raw Signal"
+          );
+        } else if (step === "filtered") {
+          descriptionDiv.innerHTML = `
+            <h3>Filtered Signal</h3>
+            <p>A simple moving average filter is applied to reduce noise:<br>
+            <em>y[n] = (x[n-2] + x[n-1] + x[n] + x[n+1] + x[n+2]) / 5</em></p>
+          `;
+          drawGraph(
+            timeData,
+            filteredSignal,
+            "Time (s)",
+            "Amplitude",
+            "Filtered Signal"
+          );
+        } else if (step === "fourier") {
+          descriptionDiv.innerHTML = `
+            <h3>Fourier Transform</h3>
+            <p>The Discrete Fourier Transform (DFT) decomposes the signal into its frequency components:<br>
+            <em>X[k] = Σₙ₌₀^(N-1) x[n]·e<sup>−j2πkn/N</sup></em><br>
+            The Fourier series expansion is given by:<br>
+            <em>f(t) = a₀/2 + Σ (aₙ cos(nωt) + bₙ sin(nωt))</em></p>
+          `;
+          drawGraph(
+            fourierData.freq,
+            fourierData.magnitude,
+            "Frequency (Hz)",
+            "Magnitude",
+            "Fourier Transform (Magnitude)"
+          );
+        } else if (step === "rectified") {
+          descriptionDiv.innerHTML = `
+            <h3>Rectified Signal</h3>
+            <p>The rectification step computes the absolute value of the signal:<br>
+            <em>y[n] = |x[n]|</em></p>
+          `;
+          drawGraph(
+            timeData,
+            rectifiedSignal,
+            "Time (s)",
+            "Amplitude",
+            "Rectified Signal"
+          );
+        }
+        canvas.style.opacity = 1;
+      }, 200);
+    }
+
+    /*********************************************************************
+     * Event Listeners and Interactivity
+     *********************************************************************/
+    // Generate new signal when button is clicked
+    generateBtn.addEventListener("click", () => {
+      const selectedSignal = signalTypeSelect.value;
+      generateSignal(selectedSignal);
+      // After generating, display the raw signal by default
+      showStep("raw");
+    });
+
+    // Add click listeners to each processing step in the sidebar
+    document.querySelectorAll("#stepsList li").forEach((item) => {
+      item.addEventListener("click", () => {
+        const step = item.getAttribute("data-step");
+        if (rawSignal.length === 0) {
+          alert("Please generate a signal first.");
+          return;
+        }
+        showStep(step);
+      });
+    });
+
+    // Optional: Show a tooltip with data coordinates when hovering over the canvas.
+    canvas.addEventListener("mousemove", (evt) => {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = evt.clientX - rect.left;
+      const mouseY = evt.clientY - rect.top;
+      // Map canvas coordinates back to data coordinates based on current step.
+      let xData, yData;
+      if (currentStep === "fourier") {
+        xData = fourierData.freq;
+        yData = fourierData.magnitude;
+      } else if (currentStep === "raw") {
+        xData = timeData;
+        yData = rawSignal;
+      } else if (currentStep === "filtered") {
+        xData = timeData;
+        yData = filteredSignal;
+      } else if (currentStep === "rectified") {
+        xData = timeData;
+        yData = rectifiedSignal;
+      } else {
+        return;
+      }
+
+      // Define the same margins as in drawGraph()
+      const margin = { top: 40, right: 20, bottom: 40, left: 60 };
+      const plotWidth = canvas.width - margin.left - margin.right;
+      const plotHeight = canvas.height - margin.top - margin.bottom;
+      const xMin = Math.min(...xData);
+      const xMax = Math.max(...xData);
+      const yMin = Math.min(...yData);
+      const yMax = Math.max(...yData);
+      // Inverse mapping functions
+      const invMapX = (x) => xMin + ((x - margin.left) / plotWidth) * (xMax - xMin);
+      const invMapY = (y) => yMax - ((y - margin.top) / plotHeight) * (yMax - yMin);
+
+      const dataX = invMapX(mouseX);
+      const dataY = invMapY(mouseY);
+
+      tooltip.style.left = evt.clientX + 10 + "px";
+      tooltip.style.top = evt.clientY + 10 + "px";
+      tooltip.innerHTML =
+        "x = " + dataX.toFixed(3) + "<br>y = " + dataY.toFixed(3);
+      tooltip.style.display = "block";
+    });
+
+    canvas.addEventListener("mouseleave", () => {
+      tooltip.style.display = "none";
+    });
+
+    /*********************************************************************
+     * Initialization
+     *********************************************************************/
+    // Optionally, generate a default signal on page load
+    window.addEventListener("load", () => {
+      generateSignal(signalTypeSelect.value);
+      showStep("raw");
+    });
+  </script>
+</body>
+</html>
